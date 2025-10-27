@@ -1,0 +1,33 @@
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Editors/IDEs
+.vscode/
+.idea/
+*.code-workspace
+
+# Arduino/Tool output (keep source, ignore builds/artifacts)
+build*/
+*/build*/
+*.bin
+*.elf
+*.hex
+*.map
+*.eep
+*.dSYM/
+
+# PlatformIO (if you ever try it)
+.pio/
+.pioenvs/
+.cpio/
+
+# Python cache (if you script tools)
+__pycache__/
+*.pyc
+
+# Node tooling (if you add prebuild scripts)
+node_modules/
+
+# Local secrets (example below)
+secrets.h
