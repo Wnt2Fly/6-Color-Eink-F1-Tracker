@@ -13,9 +13,6 @@
 #include <ctype.h>
 
 // ------------------- WIFI/NETWORK ----------------------
-#define AP_SSID "f1tracker"
-#define AP_PASS "f1trackers"
-
 enum screenAlignment { LEFT, RIGHT, CENTER };
 bool wifiConnected = false;
 
@@ -65,14 +62,6 @@ GxEPD2_3C<GxEPD2_290_C90c, GxEPD2_290_C90c::HEIGHT> display(
 );
 
 U8G2_FOR_ADAFRUIT_GFX gfx;
-
-// ---- WiFi failover list ----
-struct WifiCred { const char* ssid; const char* pass; };
-const WifiCred WIFI_LIST[] = {
-  { "Aux2.4", "luigi123" },
-  { "UMASS-DEVICES", "GoUmass!" }
-};
-const int WIFI_LIST_LEN = sizeof(WIFI_LIST) / sizeof(WIFI_LIST[0]);
 
 // ------------------- JSON / MEMORY ----------------------
 // Optimized: Reduced from 16KB to 12KB (adequate for F1 API responses)
@@ -196,32 +185,26 @@ String seasonBaseUrl() {
 }
 
 // ------------------- WIFI CONNECTION -------------------
-bool connectToAnyWifi(unsigned long perNetMs = 15000) {
-  WiFi.mode(WIFI_STA);
-  WiFi.setSleep(true);
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
-
-  for (int i = 0; i < WIFI_LIST_LEN; i++) {
-    Serial.printf("[WiFi] Trying %s ...\n", WIFI_LIST[i].ssid);
-    WiFi.begin(WIFI_LIST[i].ssid, WIFI_LIST[i].pass);
-
-    unsigned long start = millis();
-    while (millis() - start < perNetMs) {
-      if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("[WiFi] Connected to %s  IP=%s\n", WIFI_LIST[i].ssid, WiFi.localIP().toString().c_str());
-        return true;
-      }
-      delay(250);
-    }
-
-    Serial.printf("[WiFi] Timeout on %s — disconnect & try next\n", WIFI_LIST[i].ssid);
-    WiFi.disconnect(true, true);
-    delay(200);
+bool setup_wifi() {
+  WiFiManager wm;
+  wm.setConfigPortalTimeout(300); // 5 minute timeout
+  
+  Serial.println(F("Attempting to connect to WiFi..."));
+  
+  if (wm.autoConnect("F1Tracker-Setup", "formula1")) { 
+    Serial.println(F("WiFi connected successfully!"));
+    Serial.println("IP: " + WiFi.localIP().toString());
+    wifiConnected = true;
+    configTime(0, 0, NTP1, NTP2);
+    setenv("TZ", MY_TZ, 1);
+    tzset();
+    return true;
   }
+  
+  Serial.println(F("Failed to connect to WiFi."));
+  wifiConnected = false;
   return false;
 }
-
 
 // ------------------- HELPERS -------------------
 
@@ -490,23 +473,6 @@ bool fetchQualifyingWithCache(unsigned int round, TFilterDoc* filter = nullptr) 
   return true;
 }
 
-bool setup_wifi() {
-  WiFiManager wm;
-  
-  Serial.println(F("Attempting to reconnect to known Wi-Fi..."));
-  
-  if (wm.autoConnect("Aux2.4", "luigi123")) { 
-    Serial.println(F("Reconnected to Wi-Fi successfully."));
-    wifiConnected = true;
-    configTime(3600, 0, NTP1, NTP2); 
-    return true;
-  }
-  
-  Serial.println(F("Failed to connect to Wi-Fi."));
-  wifiConnected = false;
-  return false;
-}
-
 // ------------------- DRAWING HELPERS -------------------
 void drawStringRED(int x, int y, String str, screenAlignment alignment) {
   int16_t x1, y1; uint16_t w, h;
@@ -536,12 +502,30 @@ void drawStringBLACK(int x, int y, String str, screenAlignment alignment) {
 
 // ------------------- WIFI MANAGER CALLBACK -------------------
 void configModeCallback(WiFiManager* myWiFiManager) {
+  display.setFullWindow();
   display.fillScreen(GxEPD_WHITE);
-  drawStringRED(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, F("Please connect to WiFi"), CENTER);
-  drawStringBLACK(SCREEN_WIDTH/2, 84,  F("SSID: F1 tracker"), CENTER);
-  drawStringBLACK(SCREEN_WIDTH/2, 104, F("PASS: formula1"), CENTER);
+  
+  gfx.setFont(u8g2_font_helvB10_tf);
+  drawStringRED(SCREEN_WIDTH/2, 30, F("WiFi Setup Required"), CENTER);
+  
+  gfx.setFont(u8g2_font_helvB08_tf);
+  drawStringBLACK(SCREEN_WIDTH/2, 55, F("1. Connect to this WiFi:"), CENTER);
+  
+  gfx.setFont(u8g2_font_helvB10_tf);
+  drawStringRED(SCREEN_WIDTH/2, 72, F("F1Tracker-Setup"), CENTER);
+  
+  gfx.setFont(u8g2_font_helvB08_tf);
+  drawStringBLACK(SCREEN_WIDTH/2, 87, F("Password: formula1"), CENTER);
+  
+  drawStringBLACK(SCREEN_WIDTH/2, 105, F("2. Open browser (auto-popup)"), CENTER);
+  drawStringBLACK(SCREEN_WIDTH/2, 117, F("3. Select your home WiFi"), CENTER);
+  
   display.display(false);
   display.hibernate();
+  
+  Serial.println(F("[WiFi] Config portal started"));
+  Serial.println("SSID: F1Tracker-Setup");
+  Serial.println("Password: formula1");
 }
 
 // ------------------- HEADER -------------------
@@ -776,6 +760,7 @@ void DrawLastRace(bool currentRaceInProgress) {
     display.drawBitmap(SCREEN_WIDTH / 2 - logoWidth / 2, 50, F1_Logo, logoWidth, logoHeight, GxEPD_RED);
   }
 }
+
 // ------------------- COUNTDOWN HELPERS -------------------
 String nextRaceCountdownDH() {
   time_t epoch = nextRaceEpoch ? nextRaceEpoch : isoUtcToEpoch(nextDate, nextTime);
@@ -790,10 +775,10 @@ String nextRaceCountdownDH() {
   long hours = (diff % 86400L) / 3600L;
 
   if (days == 0 && hours == 0) {
-    return "in <1 hour";
+    return "<1 hour";
   }
 
-  String out = "in ";
+  String out = "";
   if (days > 0) {
     out += String(days) + " day";
     if (days != 1) out += "s";
@@ -909,6 +894,7 @@ void PartialUpdateHeaderAndCountdown() {
     }
   } while (display.nextPage());
 }
+
 void DrawDrivers() {
   bool showGrid = false;
   
@@ -1037,13 +1023,13 @@ void DrawStartingGrid(unsigned round) {
     JsonObject row = q[i];
     String pos  = row["position"] | "";
     String fam  = row["Driver"]["familyName"] | "";
-    // REMOVED: String abbr = utf8_substr(fam, 3);
 
-    String lineLeft  = pos + " " + fam;  // Full name instead of abbr
+    String lineLeft  = pos + " " + fam;
     int y = DRIVERS_ROW_Y0 + i * 10;
     drawStringBLACK(listx, y, lineLeft, LEFT);
   }
 }
+
 // ------------------- DRAW CONSTRUCTORS -------------------
 void DrawConstructors() {
   StaticJsonDocument<512> filter;
@@ -1083,7 +1069,6 @@ void DrawConstructors() {
 }
 
 // ------------------- RACE IN PROGRESS -------------------
-// ------------------- RACE IN PROGRESS -------------------
 void DrawRaceInProgress(unsigned round, String gpName, String dateStr, String timeStr) {
   time_t epoch = isoUtcToEpoch(dateStr, timeStr);
   time_t now = time(nullptr); 
@@ -1121,8 +1106,9 @@ bool resultsAvailableForLastRound() {
 // ------------------- SETUP -------------------
 void setup() {
   Serial.begin(115200);
-  delay(2000); // Give time to open serial monitor
+  delay(2000);
 
+  // Initialize SPI and display
   SPI.begin(EPDSCK, -1, EPDMOSI, EPDCS);
   SPI.setFrequency(4000000);
   pinMode(EPDBUSY, INPUT);
@@ -1140,36 +1126,54 @@ void setup() {
   display.fillScreen(GxEPD_WHITE);
   display.setFullWindow();
 
+  // Setup WiFi using WiFiManager
   WiFiManager wifiManager;
   wifiManager.setAPCallback(configModeCallback);
+  wifiManager.setConfigPortalTimeout(300); // 5 min timeout
 
-  if (!connectToAnyWifi(15000)) {
-    Serial.println("[WiFi] All known networks failed. Starting AP via WiFiManager...");
-    if (!wifiManager.autoConnect(AP_SSID, AP_PASS)) {
-      Serial.println("[WiFi] WiFiManager failed; rebooting.");
-      ESP.restart();
-    }
+  Serial.println(F("[WiFi] Starting WiFi setup..."));
+  
+  if (!wifiManager.autoConnect("F1Tracker-Setup", "formula1")) {
+    Serial.println(F("[WiFi] Failed to connect - restarting..."));
+    
+    // Show failure message
+    display.fillScreen(GxEPD_WHITE);
+    gfx.setFont(u8g2_font_helvB10_tf);
+    drawStringRED(SCREEN_WIDTH/2, 50, F("WiFi Setup Failed"), CENTER);
+    drawStringBLACK(SCREEN_WIDTH/2, 75, F("Restarting..."), CENTER);
+    display.display(false);
+    
+    delay(3000);
+    ESP.restart();
   }
 
-  wifiConnected = (WiFi.status() == WL_CONNECTED);
-  Serial.println("\nWi-Fi ready, IP=" + WiFi.localIP().toString());
+  wifiConnected = true;
+  Serial.println(F("\n[WiFi] Connected!"));
+  Serial.println("IP: " + WiFi.localIP().toString());
 
+  // Configure time
   configTzTime(MY_TZ, NTP1, NTP2);
-  while (!getLocalTime(&timeinfo)) { delay(1000); Serial.print("."); }
-  Serial.println();
+  while (!getLocalTime(&timeinfo)) { 
+    delay(1000); 
+    Serial.print("."); 
+  }
+  Serial.println(F("\n[Time] Synced!"));
 
+  // Show success message
   display.fillScreen(GxEPD_WHITE);
   display.drawBitmap(SCREEN_WIDTH / 2 - logoWidth / 2, 50, F1_Logo, logoWidth, logoHeight, GxEPD_RED);
   drawStringBLACK(40, 84, F("It's lights out and away we go!!!"), LEFT);
   display.display(false);
   display.hibernate();
 
+  // Initialize preferences
   prefs.begin("f1tracker", false);
   processedRound   = prefs.getUInt("processedRound", 0);
   nextRound        = prefs.getUInt("nextRound", 0);
   nextRaceEpoch    = (time_t)prefs.getULong64("nextEpoch", 0);
   nextRaceDateStr  = prefs.getString("nextDate", "");
 
+  // Initial data fetch and display
   display.setFullWindow();
   display.firstPage();
   do {
@@ -1210,13 +1214,12 @@ void setup() {
     prefs.putUInt("processedRound", processedRound);
   }
   
-  // Initialize timers to prevent immediate updates after boot
+  // Initialize timers
   lastCheck = millis();
   prefs.putULong64("lastDispUpd", millis());
   prefs.putULong64("lastWipeTS", millis());
   
-  Serial.println(F("[Setup] Initial display complete, timers initialized"));
-
+  Serial.println(F("[Setup] Complete!"));
 }
 
 // ------------------- FULL REFRESH -------------------
@@ -1251,15 +1254,12 @@ void fullRefreshAndReschedule() {
 }
 
 // ------------------- LOOP -------------------
-// ===== COMPLETE REPLACEMENT FOR loop() =====
-
 void loop() {
   // Check WiFi status and reconnect if necessary
-  if (!wifiConnected) {
-    if (!setup_wifi()) {
-      delay(300000); // 5 min delay if WiFi setup failed again
-      return;
-    }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(F("[WiFi] Connection lost - restarting..."));
+    delay(1000);
+    ESP.restart();  // Let it reconnect on boot using saved credentials
   }
 
   unsigned long nowMs = millis();
