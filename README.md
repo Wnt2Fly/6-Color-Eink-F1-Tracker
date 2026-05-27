@@ -1,5 +1,7 @@
 # F1 Tracker (Large / PhotoPainter)
 
+**Current release: [v1.0](CHANGELOG.md#v10)**
+
 <p align="center">
   <img src="images/readme-photo.jpg" alt="F1 Tracker on Waveshare PhotoPainter 7.3 inch e-paper" width="720">
 </p>
@@ -14,7 +16,7 @@ Custom firmware for the **[Waveshare ESP32-S3 PhotoPainter](https://www.waveshar
 | **Admin page reference** | [ADMIN_PAGE.md](ADMIN_PAGE.md) — every setting at `http://<device-ip>/` |
 | **QA checklist** | [TESTING_GUIDE.md](TESTING_GUIDE.md) |
 
-![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange) ![Framework](https://img.shields.io/badge/Framework-Arduino-00979D) ![Build](https://img.shields.io/badge/Build-PlatformIO-ffc515) ![Display](https://img.shields.io/badge/Display-7.3%22%206--color-e--paper-blue)
+![Version](https://img.shields.io/badge/version-1.0-red) ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange) ![Framework](https://img.shields.io/badge/Framework-Arduino-00979D) ![Build](https://img.shields.io/badge/Build-PlatformIO-ffc515) ![Display](https://img.shields.io/badge/Display-7.3%22%206--color-e--paper-blue)
 
 ---
 
