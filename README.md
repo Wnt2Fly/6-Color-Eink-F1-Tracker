@@ -1,5 +1,9 @@
 # F1 Tracker (Large / PhotoPainter)
 
+<p align="center">
+  <img src="images/readme-photo.jpg" alt="F1 Tracker on Waveshare PhotoPainter 7.3 inch e-paper" width="720">
+</p>
+
 Firmware for the **Waveshare ESP32-S3 PhotoPainter** board with the **7.3″ six-color e-paper panel** (800×480). It shows Formula 1 calendar context, driver and constructor standings, qualifying grid near race time, results/podium, countdowns, and optional startup/update sounds from SD card.
 
 ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange) ![Framework](https://img.shields.io/badge/Framework-Arduino-00979D) ![Build](https://img.shields.io/badge/Build-PlatformIO-ffc515)
