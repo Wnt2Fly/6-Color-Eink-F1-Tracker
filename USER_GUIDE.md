@@ -20,7 +20,7 @@ Optional but recommended:
 
 | Channel | What it controls |
 |---------|-------------------|
-| **`http://<device-ip>/`** | Refresh intervals, caches, Wi‑Fi, audio, boot splash, SD uploads, manual redraw/reboot |
+| **`http://<device-ip>/`** | Refresh intervals, caches, Wi‑Fi, audio, boot splash, SD uploads, manual redraw/reboot — see **[ADMIN_PAGE.md](ADMIN_PAGE.md)** for every control |
 | **Captive portal** (`192.168.4.1` during setup AP `F1Tracker-Setup` / `formula1`) | Initial SSID/password when no credentials stored |
 | **Firmware rebuild only** | POSIX timezone string `MY_TZ` in `src/main.cpp` (defaults to US Eastern) |
 
@@ -160,98 +160,22 @@ The footer **Next Update: …** previews the next computed slot.
 
 ---
 
-## Web settings page — tabs
+## Web settings page (admin UI)
 
-Open **`http://<device-ip>/`** in a browser on the same LAN. Use the tab buttons across the top.
+Open **`http://<device-ip>/`** on the same LAN as the device.
 
-### Global save behavior
+**Full reference — every tab, field, button, HTTP endpoint, prefs keys, and defaults:**
 
-- **`Save all settings`** (top of page, POST `/save`) persists everything **except** boot splash is grouped with the main form but stored when you save from that flow — the UI notes boot splash submits with **Save all settings**.
-- **`Apply sound settings now`** (POST `/save_sounds`) writes **volume**, clip toggles, WAV filenames, and **quiet hours** immediately without requiring full-tab iteration.
+### **[ADMIN_PAGE.md](ADMIN_PAGE.md)**
 
----
+That document is the complete admin manual. Summary of what it covers:
 
-### Tab: **Schedule**
-
-| Control | Meaning |
-|---------|---------|
-| **Race weekend window — every N minutes** (`updRace`, 1–1440) | Refresh cadence while inside **race window** before/after lights-out (see race window hours below). |
-| **Final phase (< N h before race) — every N minutes** (`updGrid`, 1–1440) | More frequent polls when within **phaseGrid** hours of lights-out — hunting qualifying/grid data. |
-| **Mid phase — at :00 every N hours** (`hrNear`, 1–24) | Hourly-aligned cadence from **phaseGrid** away until **phaseMid** boundary. |
-| **Far phase — at :00 every N hours** (`hrFar`, 1–24) | Same style **beyond phaseMid** hours before lights-out. |
-| **Race “in progress” grace after lights out** (`raceProgH`, 1–48 h) | Hours after lights-out treated as “race still live” for UI / podium logic. |
-| **Hours before lights out counted as race window** (`raceBefH`, 1–72) | Expands high-frequency refresh window **before** the race. |
-| **Hours after lights out counted as race window** (`raceAftH`, 1–72) | Same **after** lights-out. |
-| **Show starting grid when race is within N hours** (`gridShowH`, 1–168 h) | Switches driver column to qualifying grid near next race if qualifying exists. |
-| **Start “final phase” at N hours** (`phaseGrid`, 1–167) | Beginning of aggressive grid polling window before lights-out. |
-| **End “far phase” at N hours** (`phaseMid`, 2–168, must exceed phaseGrid) | Beyond this offset from lights-out, **far** hourly cadence applies. |
-
----
-
-### Tab: **Audio & time**
-
-| Control | Meaning |
-|---------|---------|
-| **Volume 0–100** (`vol`) | DAC digital volume; **0 = mute**. Applies immediately after save / apply sounds. |
-| **Boot** + WAV dropdown (`soundBoot`, `soundBootFile`) | Play WAV **after Wi‑Fi connects** during boot. **Same clip** plays **once when official race results first appear** for the current completed round (`celebrRound` in prefs remembers so it doesn’t repeat). That celebration is blocked for ~22s after boot so it doesn’t double with the startup boot WAV. |
-| **Loaded** + WAV (`soundLoaded`, `soundLoadedFile`) | Play once **after first full successful frame draw** following setup. |
-| **Update** + WAV (`soundUpdate`, `soundUpdateFile`) | Play after **scheduled refresh**, **Force display refresh**, or **Redraw screen** when enabled. |
-| **Quiet hours** (`quietEn`, `quietSh`, `quietEh`) | Suppress WAV playback during local-hour window (same TZ as status clock). Same calendar day: `[start, end)`; overnight supported when start \> end. |
-| **24-hour time** (`clock24h`) | Header + next-race box time formatting. |
-
-Dropdown lists scan **`/sound/`** on SD for `.wav` files (nested folders supported). Only `.wav` paths passing sanity checks are accepted.
-
----
-
-### Tab: **API cache**
-
-Values are **minutes** stored then converted internally.
-
-| Control | Meaning |
-|---------|---------|
-| **Calendar JSON** (`cacheCal`) | TTL for full races calendar snapshot. |
-| **Driver & constructor standings** (`cacheStand`) | TTL for standings blobs (also bounds cached reuse when probing results). |
-| **Qualifying JSON** (`cacheQual`) | TTL for qualifying payload reuse once fetched. |
-| **Remember qualifying availability probe** (`ttlQualAv`) | How long to trust “qualifying exists / absent” without hitting probe endpoints again — influences scheduler easing once grid is known. |
-| **Remember results availability probe** (`ttlRes`) | Same idea for “results posted?” probes so podium polling backs off appropriately. |
-
-Shorter TTL = fresher data, more API traffic.
-
----
-
-### Tab: **Wi‑Fi**
-
-| Control | Meaning |
-|---------|---------|
-| **Apply new network below** | Checkbox gate — must be checked on submit to apply SSID/password changes. |
-| **SSID / Password** | STA credentials; blank password keeps previously saved password. |
-| **Keep Wi‑Fi on for this page** (`wifiAlways`) | When **off**, firmware disconnects Wi‑Fi after idle work — **web UI unreachable until next reconnect**. |
-
----
-
-### Tab: **SD & system**
-
-#### Upload / folders / browse
-
-- **Upload to SD** — multipart upload into **`sound`**, **`flags`**, **`tracks`**, **`logos`**, or **card root** (requires safe subpath). Max **12 MB per file**. Filenames: alphanumeric plus `_ - .`.
-- **Create folder on SD** — Creates nested paths under chosen base or absolute segments under `/`.
-- **Browse and delete** (`/sd`) — Lists safe paths; delete files or **empty** folders. Top-level app folders `/sound`, `/flags`, `/tracks`, `/logos` cannot be deleted from UI.
-
-#### Startup
-
-| Control | Meaning |
-|---------|---------|
-| **Show F1 boot splash on power-up** (`bootSplash`) | Quote + logo frame before Wi‑Fi setup continues. |
-
-Requires **Save all settings** from main form.
-
-#### System actions
-
-| Button | Endpoint | Effect |
-|--------|----------|--------|
-| **Redraw screen (no data update)** | POST `/refresh_screen` | Renders from existing memory caches **without** HTTP JSON refresh; still allows NTP if Wi‑Fi connected. |
-| **Force display refresh** | POST `/refresh` | Clears caches, hits APIs like scheduled refresh, redraws panel. Needs Wi‑Fi. |
-| **Reboot device** | POST `/reboot` | Soft restart ESP32-S3. |
+- **Save all settings** vs **Apply sound settings now** vs SD/system-only actions  
+- **Schedule** — refresh phases, race window, grid display hours (with defaults)  
+- **Audio & time** — boot / loaded / update WAVs, results celebration, quiet hours, 24h clock  
+- **API cache** — TTL minutes for calendar, standings, qualifying, availability probes  
+- **Wi‑Fi** — SSID/password, keep Wi‑Fi on  
+- **SD & system** — upload, mkdir, `/sd` browser, boot splash, redraw / force refresh / reboot  
 
 ---
 
