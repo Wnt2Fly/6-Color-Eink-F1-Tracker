@@ -174,6 +174,9 @@ static void logEspResetReason() {
 #define C1_LAST_RACE_HEADER_TO_GP_Y  54
 #define C1_LGPN_Y   (C1_SEC2_Y + C1_LAST_RACE_HEADER_TO_GP_Y)
 #define C1_LCIRC_Y  (C1_LGPN_Y + 18)
+#define C1_CIRC_LINE_H           11   // FONT_SMALL city line height
+#define C1_TRACK_BELOW_CIRC_GAP   4   // gap below city line → track slot top
+#define C1_TRACK_ABOVE_POD_GAP    4   // gap above P1 podium → track slot bottom
 
 #define POD_BASE_Y   (EPD_HEIGHT - FOOTER_H - 2)   // above footer bar
 #define POD_1_W       66
@@ -2535,15 +2538,16 @@ static void DrawLeftPanel() {
     }
   }
 
-  // ── Track diagram — clipped above podium (centered in column; Montreal scaled + rotated in track_reader)
+  // ── Track diagram — vertically centered in slot between circuit city line and podium
   if(lastCircuitId.length()) {
-    int trackY = C1_LCIRC_Y - 21;
-    int trackMaxH = POD_1_Y - trackY - 4;
+    const int trackSlotTop = C1_LCIRC_Y + C1_CIRC_LINE_H + C1_TRACK_BELOW_CIRC_GAP;
+    const int trackSlotBottom = POD_1_Y - C1_TRACK_ABOVE_POD_GAP;
+    const int trackMaxH = trackSlotBottom - trackSlotTop;
     const int tinset = 2;
     const int trackLayoutLeft = cx + tinset;
     const int trackLayoutW = cw - 2 * tinset;
     if(trackMaxH > 20)
-      drawTrackFromSD(lastCircuitId.c_str(), trackLayoutLeft, trackY, EPD_WHITE, trackMaxH, trackLayoutW);
+      drawTrackFromSD(lastCircuitId.c_str(), trackLayoutLeft, trackSlotTop, EPD_WHITE, trackMaxH, trackLayoutW);
   }
 
   // ── PODIUM boxes — driver TLAs only (no surnames); transparent text ──

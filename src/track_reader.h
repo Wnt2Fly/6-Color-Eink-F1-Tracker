@@ -46,6 +46,24 @@ static inline bool trackPixelAt(const uint8_t* img, int ox, int oy) {
   return (b & (uint8_t)(1u << (7 - (ox & 7)))) != 0;
 }
 
+// Tight bbox of lit pixels in the 200×130 source bitmap.
+static bool trackSourceBBox(const uint8_t* img, int& minOx, int& maxOx, int& minOy, int& maxOy) {
+  minOx = TRACK_W;
+  maxOx = -1;
+  minOy = TRACK_H;
+  maxOy = -1;
+  for (int oy = 0; oy < TRACK_H; oy++) {
+    for (int ox = 0; ox < TRACK_W; ox++) {
+      if (!trackPixelAt(img, ox, oy)) continue;
+      if (ox < minOx) minOx = ox;
+      if (ox > maxOx) maxOx = ox;
+      if (oy < minOy) minOy = oy;
+      if (oy > maxOy) maxOy = oy;
+    }
+  }
+  return maxOx >= minOx && maxOy >= minOy;
+}
+
 // layoutW: horizontal space allocated in column for centering (non-rot: TRACK centered in this width).
 static void drawTrackFromSD(const char* circuitId, int layoutLeft, int layoutTop, uint8_t color,
                              int layoutMaxH, int layoutW) {
@@ -65,8 +83,13 @@ static void drawTrackFromSD(const char* circuitId, int layoutLeft, int layoutTop
     return;
   }
 
-  // Montreal (Circuit Gilles Villeneuve): bitmap reads better rotated 90° CCW (left).
-  const bool rotCcw90 = (strcmp(fname, "villeneuve") == 0);
+  int minOx, maxOx, minOy, maxOy;
+  if (!trackSourceBBox(s_buf, minOx, maxOx, minOy, maxOy)) return;
+
+  const int srcW = maxOx - minOx + 1;
+  const int srcH = maxOy - minOy + 1;
+  // Tall silhouettes in the 200×130 canvas — rotate 90° CCW (left), then scale + center.
+  const bool rotCcw90 = (srcH > srcW);
 
   if (!rotCcw90) {
     int drawX = layoutLeft + (layoutW - TRACK_W) / 2;
