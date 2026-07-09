@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.1
+
+### Display
+
+- **Next race** — date and local time in large type in the countdown box (removed separate “LIGHTS OUT” / small date lines).
+- **Standings rows** — admin **Display** tab: toggle and **reorder** driver/constructor elements (code badge, team logo, name, flag, bar, points); position `#` always shown.
+- **Driver code badges** — TLA boxes (ANT, RUS, …) restored; optional via **Driver code badge** toggle.
+- **Driver flags** — fixed column alignment (no stagger when point totals differ in width).
+- **Constructor names** — canonical short labels (e.g. Aston Martin, Red Bull); full-size font with improved bar/points spacing.
+- **Circuit maps** — auto-rotate tall `.raw` silhouettes; center track in slot between city line and podium.
+- **Layout** — constructor bars spaced from 3-digit points; constructor/driver truncation uses correct font metrics.
+
+### Web admin & Wi‑Fi
+
+- **Display** tab — row visibility and left→right order for drivers/grid and constructors.
+- **`/health`** — plain-text liveness check (`ok` + IP).
+- **Admin reliability** — Wi‑Fi stays up for the web UI; HTTP server restarts cleanly after WiFiManager / reconnect; served during long e-paper refresh and WAV playback.
+- **Wi‑Fi save** — hidden-field fix so “Keep Wi‑Fi on” is not cleared accidentally on save.
+
+### Build
+
+- Same PlatformIO `photopainter` target; flash ~1.17 MB.
+
+---
+
 ## v1.0
 
 First public release on GitHub.

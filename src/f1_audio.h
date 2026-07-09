@@ -6,6 +6,9 @@
 #include <time.h>
 #include <driver/i2s.h>
 
+// Long audio/EPD ops call this so the config web UI stays reachable (implemented in main.cpp).
+void f1TrackerServiceWebDuringBlock();
+
 // PhotoPainter: BCLK/Ws/DOUT/MCLK match boards/waveshare-s3-PhotoPainter/config.h —
 // Playback data must leave GPIO 17 (→ ES8311 DSDIN). GPIO 18 is DIN (mic ADC → ESP).
 #define I2S_MCLK   14
@@ -477,7 +480,7 @@ static void playWAV(const char* path) {
       if (werr != ESP_OK)
         Serial.printf("[Audio] i2s_write stereo: %s\n", esp_err_to_name(werr));
       totalWritten += written;
-      yield();
+      f1TrackerServiceWebDuringBlock();
     } else {
       n &= ~1;
       int nSamp = n / 2;
@@ -496,7 +499,7 @@ static void playWAV(const char* path) {
       if (werr != ESP_OK)
         Serial.printf("[Audio] i2s_write mono: %s\n", esp_err_to_name(werr));
       totalWritten += written;
-      yield();
+      f1TrackerServiceWebDuringBlock();
     }
   }
   f.close();

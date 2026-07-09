@@ -136,11 +136,20 @@ static void logEspResetReason() {
 #define D_BAR_X     COL2_X
 #define D_POS_X    (COL2_X + 6)
 #define D_POS_W     16
-#define D_BADGE_X  (COL2_X + 26)
+#define D_BADGE_X   (D_POS_X + D_POS_W + 4)
 #define D_BADGE_W   34
 #define D_BADGE_H   20
+#define D_DRV_LOGO_W  40
+#define D_DRV_LOGO_H  20
+#define D_LOGO_X    (D_BADGE_X + D_BADGE_W + 4)
 #define D_NAME_X   (COL2_X + 66)
 #define D_PTS_X    (COL2_X + COL2_W - 4)
+#define D_PTS_RESERVE  36
+#define D_BAR_W       54
+#define D_FLAG_W       24
+#define D_FLAG_H       16
+#define D_FLAG_SHIFT_L  3   // nudge flag bitmap left (more name room)
+#define D_ROW_SLOT_GAP  6
 
 // Col3 — constructor row layout
 #define C_BAR_X     COL3_X
@@ -150,31 +159,51 @@ static void logEspResetReason() {
 #define CTOR_LOGO_H 20
 #define C_LOGO_X    (C_POS_X + C_POS_W + 4)
 #define C_NAME_X    (C_LOGO_X + CTOR_LOGO_W + 6)
-#define C_NAME_MAX_W  110
-#define C_BAR_START  (C_NAME_X + C_NAME_MAX_W + 4)
-#define C_BAR_W       70
 #define C_PTS_X      (COL3_X + COL3_W - 4)
+#define C_PTS_RESERVE  36   // 3-digit points at FONT_MED
+#define C_BAR_W       44
+#define C_BAR_PTS_GAP  10   // gap between bar track and points text
+#define C_ROW_SLOT_GAP  6
+
+// Standings row slot ids (order stored in prefs as permutation)
+enum : uint8_t {
+  SLOT_CODE = 0,
+  SLOT_LOGO = 1,
+  SLOT_NAME = 2,
+  SLOT_FLAG = 3,
+  SLOT_BAR  = 4,
+  SLOT_PTS  = 5,
+  SLOT_COUNT = 6,
+};
+enum : uint8_t {
+  CSLOT_LOGO = 0,
+  CSLOT_NAME = 1,
+  CSLOT_BAR  = 2,
+  CSLOT_PTS  = 3,
+  CSLOT_COUNT = 4,
+};
 
 // Col1 left panel Y layout
-// fur20 race name (~20px), fur11 circuit (~11px), countdown box with fur35 inside
+// fur20 race name (~18px), circuit city (~14px FONT_MED), date/time box (FONT_LARGE)
 #define C1_SEC1_Y    SECTION_TITLE_Y
 // Pixels below "NEXT RACE" strip before GP row; LAST RACE chain follows C1_BOX (podium: POD_BASE_Y)
 #define C1_AFTER_NEXT_HEADER_EXTRA_Y  2   // tighter below NEXT RACE strip → pull GP block up
 // Top of FONT_LARGE GP line: extra Y below header strip (circuit uses gap below).
 #define C1_GP_NAME_NUDGE_Y  16
 // Vertical gap from GP line Y to circuit line Y (avoids overlap as NUDGE grows).
-#define C1_GP_TO_CIRC_GAP   11
+#define C1_GP_TO_CIRC_GAP   14
 #define C1_AFTER_HEADER_BASE_Y  (C1_SEC1_Y + COL_TITLE_H + SECTION_AFTER_TITLE_GAP + C1_AFTER_NEXT_HEADER_EXTRA_Y)
 #define C1_RACE_Y              (C1_AFTER_HEADER_BASE_Y + C1_GP_NAME_NUDGE_Y)
 #define C1_CIRC_Y              (C1_RACE_Y + C1_GP_TO_CIRC_GAP)
-#define C1_BOX_Y    (C1_CIRC_Y + 10)
+#define C1_BOX_Y    (C1_CIRC_Y + 12)
 #define C1_BOX_H     42
 #define C1_SEC2_Y   (C1_BOX_Y + C1_BOX_H + 14)  // was +4
 // Space below LAST RACE header strip before previous GP title (both GP + city move together).
 #define C1_LAST_RACE_HEADER_TO_GP_Y  54
 #define C1_LGPN_Y   (C1_SEC2_Y + C1_LAST_RACE_HEADER_TO_GP_Y)
-#define C1_LCIRC_Y  (C1_LGPN_Y + 18)
-#define C1_CIRC_LINE_H           11   // FONT_SMALL city line height
+#define C1_LGP_TO_LCIRC_GAP  20
+#define C1_LCIRC_Y  (C1_LGPN_Y + C1_LGP_TO_LCIRC_GAP)
+#define C1_CIRC_LINE_H           14   // FONT_MED city line height
 #define C1_TRACK_BELOW_CIRC_GAP   4   // gap below city line → track slot top
 #define C1_TRACK_ABOVE_POD_GAP    4   // gap above P1 podium → track slot bottom
 
@@ -295,6 +324,7 @@ static String constructorDisplayName(const char* ctorId, const char* ctorName) {
   if (id == "rb" || name == "rb") return "RB";
   if (id.indexOf("audi") >= 0 || name.indexOf("audi") >= 0) return "Audi";
   if (id.indexOf("williams") >= 0 || name.indexOf("williams") >= 0) return "Williams";
+  if (id.indexOf("aston_martin") >= 0 || name.indexOf("aston martin") >= 0) return "Aston Martin";
   if (id.indexOf("cadillac") >= 0 || name.indexOf("cadillac") >= 0) return "Cadillac";
   return String(ctorName);
 }
@@ -355,6 +385,8 @@ static void initPMIC() {
 // ═══════════════════════════════════════════════════════════════════
 #define EPD_BUF_SIZE (EPD_WIDTH * EPD_HEIGHT / 2)
 static uint8_t* epd_buf = nullptr;
+
+static void handleConfigServer();  // forward — used during long EPD refresh waits
 
 static inline void epd_set_pixel(int x, int y, uint8_t color) {
   if ((unsigned)x >= EPD_WIDTH || (unsigned)y >= EPD_HEIGHT) return;
@@ -458,10 +490,19 @@ static void epd_refresh() {
   epd_cmd(0x06); epd_dat(0x6F); epd_dat(0x1F); epd_dat(0x17); epd_dat(0x49);
   epd_cmd(0x12); epd_dat(0x00);
   uint32_t t0=millis();
-  while(digitalRead(EPD_BUSY)==HIGH && millis()-t0<2000) delay(1);
-  while(digitalRead(EPD_BUSY)==LOW  && millis()-t0<35000) delay(10);
+  while(digitalRead(EPD_BUSY)==HIGH && millis()-t0<2000) {
+    handleConfigServer();
+    delay(1);
+  }
+  while(digitalRead(EPD_BUSY)==LOW  && millis()-t0<35000) {
+    handleConfigServer();
+    delay(10);
+  }
   epd_cmd(0x02); epd_dat(0x00);           // power off
-  while(digitalRead(EPD_BUSY)==LOW) delay(1);
+  while(digitalRead(EPD_BUSY)==LOW) {
+    handleConfigServer();
+    delay(1);
+  }
   epd_spi_end();
 }
 
@@ -476,15 +517,32 @@ public:
 static EPDDisplay display;
 static U8G2_FOR_ADAFRUIT_GFX gfx;
 
+// Requires gfx.setFont() to match the font used when drawing the text.
 static String truncateToPixelWidth(String text, uint16_t maxWidth) {
-  int16_t x1, y1;
-  uint16_t w, h;
-  display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
-  while (text.length() && w > maxWidth) {
-    text.remove(text.length() - 1);
-    display.getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+  if (!text.length() || gfx.getUTF8Width(text.c_str()) <= (int)maxWidth) return text;
+
+  const char* ell = "...";
+  const int ellW = gfx.getUTF8Width(ell);
+  const int budget = ((int)maxWidth > ellW) ? (int)maxWidth - ellW : (int)maxWidth;
+
+  String cut = text;
+  while (cut.length() && gfx.getUTF8Width(cut.c_str()) > budget) {
+    cut.remove(cut.length() - 1);
   }
-  return text;
+  cut.trim();
+  const int sp = cut.lastIndexOf(' ');
+  if (sp > 0) {
+    String prefix = cut.substring(0, sp);
+    prefix.trim();
+    if (prefix.length() && gfx.getUTF8Width(prefix.c_str()) <= budget)
+      cut = prefix;
+  }
+  if (cut.length() < text.length()) {
+    String withEll = cut + ell;
+    if (gfx.getUTF8Width(withEll.c_str()) <= (int)maxWidth)
+      cut = withEll;
+  }
+  return cut;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -528,6 +586,19 @@ static long     cfgRaceWinAfterSec = 21600;
 static long     cfgGridShowSec = 64800;
 static long     cfgPhaseGridSec = 86400;
 static long     cfgPhaseMidSec = 172800;
+// Standings row display (admin → Display tab)
+static bool     cfgDrvCode = true;
+static bool     cfgDrvLogo = true;
+static bool     cfgDrvName = true;
+static bool     cfgDrvFlag = true;
+static bool     cfgDrvPts  = true;
+static bool     cfgDrvBar  = false;
+static bool     cfgCtorLogo = true;
+static bool     cfgCtorName = true;
+static bool     cfgCtorPts  = true;
+static bool     cfgCtorBar  = true;
+static uint8_t  cfgDrvOrder[SLOT_COUNT]  = {0, 1, 2, 3, 4, 5};
+static uint8_t  cfgCtorOrder[CSLOT_COUNT] = {0, 1, 2, 3};
 
 WebServer configServer(80);
 
@@ -542,7 +613,7 @@ static constexpr size_t kSdUploadMaxBytes = 12u * 1024u * 1024u;
 
 static void loadDeviceConfig();
 static void setupConfigWeb();
-static void handleConfigServer();
+static void onWiFiStaUp();
 static void handleSdUploadDone();
 static void handleSdMkdir();
 static void handleSdBrowse();
@@ -725,26 +796,19 @@ static String nextRaceLocalTimeLower() {
   formatLocalTime(tb, sizeof(tb), &loc);
   return String(tb);
 }
-static String nextRaceCountdownDH() {
-  time_t ep=nextRaceEpoch ? nextRaceEpoch : isoUtcToEpoch(nextDate,nextTime);
-  if(!ep) return "";
-  long diff=(long)(ep-time(nullptr)); if(diff<=0) return "";
-  long days=diff/86400L, hours=(diff%86400L)/3600L;
-  if(!days&&!hours) return "<1h";
-  String out;
-  if (days) {
-    out += String(days) + "d";
-    if (hours) out += " ";
-  }
-  if (hours) {
-    out += String(hours) + "h";
-  }
-  return out;
-}
 
 // ═══════════════════════════════════════════════════════════════════
 //  WIFI
 // ═══════════════════════════════════════════════════════════════════
+static void onWiFiStaUp() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  WiFi.setSleep(false);
+  configServer.stop();
+  configServer.begin();
+  Serial.printf("[HTTP] Listening on http://%s/  (/health)\n",
+                WiFi.localIP().toString().c_str());
+}
+
 bool ensureWiFiConnected() {
   if (WiFi.status() == WL_CONNECTED) {
     wifiConnected = true;
@@ -756,12 +820,14 @@ bool ensureWiFiConnected() {
   WiFi.begin();
   const int tries = 60;
   for (int i = 0; i < tries && WiFi.status() != WL_CONNECTED; i++) {
+    handleConfigServer();
     delay(500);
     Serial.print(F("."));
   }
   if (WiFi.status() == WL_CONNECTED) {
     wifiConnected = true;
-    Serial.println(F("\n[WiFi] OK"));
+    onWiFiStaUp();
+    Serial.printf("\n[WiFi] OK IP %s\n", WiFi.localIP().toString().c_str());
     return true;
   }
   Serial.println(F("\n[WiFi] FAIL — will retry later (no reboot)"));
@@ -769,8 +835,8 @@ bool ensureWiFiConnected() {
   return false;
 }
 void disconnectWiFiIfIdle() {
-  if (cfgWifiAlways) return;
-  if(WiFi.status()==WL_CONNECTED){WiFi.disconnect(true); WiFi.mode(WIFI_OFF); wifiConnected=false; Serial.println(F("[WiFi] Off"));}
+  // Admin UI on :80 requires STA; do not WiFi.off() after refresh (was breaking the web page).
+  (void)cfgWifiAlways;
 }
 
 // ── Sound file paths (relative to /sound/) ─────────────────────────
@@ -895,6 +961,47 @@ static void loadDeviceConfig() {
   if (pm > 168) pm = 168;
   cfgPhaseGridSec = (long)pg * 3600L;
   cfgPhaseMidSec = (long)pm * 3600L;
+
+  cfgDrvCode  = prefs.getBool("drvCode", true);
+  cfgDrvLogo  = prefs.getBool("drvLogo", true);
+  cfgDrvName  = prefs.getBool("drvName", true);
+  cfgDrvFlag  = prefs.getBool("drvFlag", true);
+  cfgDrvPts   = prefs.getBool("drvPts", true);
+  cfgDrvBar   = prefs.getBool("drvBar", false);
+  cfgCtorLogo = prefs.getBool("ctorLogo", true);
+  cfgCtorName = prefs.getBool("ctorName", true);
+  cfgCtorPts  = prefs.getBool("ctorPts", true);
+  cfgCtorBar  = prefs.getBool("ctorBar", true);
+
+  auto loadPerm = [](const char* key, uint8_t* order, uint8_t n) {
+    String s = prefs.getString(key, "");
+    if ((int)s.length() != n) {
+      for (uint8_t i = 0; i < n; i++) order[i] = i;
+      return;
+    }
+    bool used[8] = {};
+    for (uint8_t i = 0; i < n; i++) {
+      int v = s.charAt(i) - '0';
+      if (v < 0 || v >= n || used[v]) {
+        for (uint8_t j = 0; j < n; j++) order[j] = j;
+        return;
+      }
+      order[i] = (uint8_t)v;
+      used[v]   = true;
+    }
+  };
+  loadPerm("drvOrd", cfgDrvOrder, SLOT_COUNT);
+  loadPerm("ctorOrd", cfgCtorOrder, CSLOT_COUNT);
+
+  // One-time: older saves could clear wifiAlways via unchecked form POST — restore admin access.
+  if (!prefs.getBool("adminWifiFix2", false)) {
+    prefs.putBool("wifiAlways", true);
+    prefs.putBool("adminWifiFix2", true);
+    cfgWifiAlways = true;
+    Serial.println(F("[WiFi] Admin: wifiAlways restored (keeps web UI on :80)"));
+  } else if (!cfgWifiAlways) {
+    Serial.println(F("[WiFi] wifiAlways=OFF (legacy pref; Wi-Fi still stays up for admin)"));
+  }
 }
 
 static void reconnectSTA(const String& ssid, const String& pass) {
@@ -912,6 +1019,7 @@ static void reconnectSTA(const String& ssid, const String& pass) {
   }
   if (WiFi.status() == WL_CONNECTED) {
     wifiConnected = true;
+    onWiFiStaUp();
     Serial.printf("[WiFi] OK IP %s\n", WiFi.localIP().toString().c_str());
   } else
     Serial.println(F("[WiFi] STA failed — check SSID/password or open config portal"));
@@ -1529,6 +1637,61 @@ static void sortWavStrings(String* a, int n) {
       }
 }
 
+static bool savePermOrderFromRequest(const char* argPrefix, uint8_t* order, uint8_t n,
+                                     const char* prefKey) {
+  bool used[8] = {};
+  uint8_t tmp[8];
+  for (uint8_t i = 0; i < n; i++) {
+    String arg = String(argPrefix) + String(i);
+    if (!configServer.hasArg(arg)) return false;
+    int v = configServer.arg(arg).toInt();
+    if (v < 0 || v >= (int)n || used[v]) return false;
+    tmp[i] = (uint8_t)v;
+    used[v] = true;
+  }
+  for (uint8_t i = 0; i < n; i++) order[i] = tmp[i];
+  String s;
+  s.reserve(n);
+  for (uint8_t i = 0; i < n; i++) s += char('0' + order[i]);
+  prefs.putString(prefKey, s);
+  return true;
+}
+
+static void appendOrderPosSelect(String& page, const char* name, int pos1Based, uint8_t slotAtPos,
+                                 const char* labels[], uint8_t n) {
+  page += F("<label style=display:inline-block;margin:6px 10px 6px 0>Pos ");
+  page += String(pos1Based);
+  page += F(" <select name=");
+  page += name;
+  page += F(" style=max-width:140px>");
+  for (uint8_t s = 0; s < n; s++) {
+    page += F("<option value=");
+    page += String(s);
+    if (slotAtPos == s) page += F(" selected");
+    page += F(">");
+    page += labels[s];
+    page += F("</option>");
+  }
+  page += F("</select></label>");
+}
+
+static void appendDrvOrderSelectHtml(String& page) {
+  static const char* labels[] = {"Code (ANT…)", "Team logo", "Name", "Flag", "Bar", "Points"};
+  page += F("<h3 style=font-size:.88rem;margin:14px 0 8px>Driver order (after #, left → right)</h3>");
+  page += F("<p class=hint>Each element once. Points stay right-aligned; name fills space between.</p>");
+  for (uint8_t i = 0; i < SLOT_COUNT; i++)
+    appendOrderPosSelect(page, (String("drvOrd") + String(i)).c_str(), (int)(i + 1), cfgDrvOrder[i],
+                         labels, SLOT_COUNT);
+}
+
+static void appendCtorOrderSelectHtml(String& page) {
+  static const char* labels[] = {"Team logo", "Name", "Bar", "Points"};
+  page += F("<h3 style=font-size:.88rem;margin:14px 0 8px>Constructor order (after #, left → right)</h3>");
+  for (uint8_t i = 0; i < CSLOT_COUNT; i++)
+    appendOrderPosSelect(page, (String("ctorOrd") + String(i)).c_str(), (int)(i + 1), cfgCtorOrder[i],
+                         labels, CSLOT_COUNT);
+}
+
 static void appendSoundWavSelectHtml(String& page, const char* selectName, const char* selectId,
                                      const String& currentRel, const char* emptyListFallback) {
   String list[kSoundWavListMax];
@@ -1657,8 +1820,9 @@ static void setupConfigWeb() {
     page += F("<button type=button class=on data-i=0>Schedule</button>");
     page += F("<button type=button data-i=1>Audio &amp; time</button>");
     page += F("<button type=button data-i=2>API cache</button>");
-    page += F("<button type=button data-i=3>Wi‑Fi</button>");
-    page += F("<button type=button data-i=4>SD &amp; system</button>");
+    page += F("<button type=button data-i=3>Display</button>");
+    page += F("<button type=button data-i=4>Wi‑Fi</button>");
+    page += F("<button type=button data-i=5>SD &amp; system</button>");
     page += F("</nav>");
 
     page += F("<form id=mainSave method=POST action=/save>");
@@ -1760,7 +1924,45 @@ static void setupConfigWeb() {
     page += num((uint32_t)tRs);
     page += F("></div>");
 
-    page += F("<div class=tabp data-tab=3><h2>Wi‑Fi</h2>");
+    page += F("<div class=tabp data-tab=3><h2>Standings row layout</h2>");
+    page += F("<p class=hint>Position number is always shown. Redraw e‑paper after changing. Applies to driver standings and starting grid.</p>");
+    page += F("<h3 style=font-size:.88rem;margin:14px 0 8px>Drivers / grid — show</h3>");
+    page += F("<div class=row><input type=checkbox name=drvCode id=drvcode value=1");
+    page += chk(cfgDrvCode);
+    page += F("><label for=drvcode>Driver code badge (ANT, RUS, …)</label></div>");
+    page += F("<div class=row><input type=checkbox name=drvLogo id=drvlogo value=1");
+    page += chk(cfgDrvLogo);
+    page += F("><label for=drvlogo>Team logo (from <code>/logos/</code>)</label></div>");
+    page += F("<div class=row><input type=checkbox name=drvName id=drvname value=1");
+    page += chk(cfgDrvName);
+    page += F("><label for=drvname>Driver surname</label></div>");
+    page += F("<div class=row><input type=checkbox name=drvFlag id=drvflag value=1");
+    page += chk(cfgDrvFlag);
+    page += F("><label for=drvflag>Nationality flag</label></div>");
+    page += F("<div class=row><input type=checkbox name=drvPts id=drvpts value=1");
+    page += chk(cfgDrvPts);
+    page += F("><label for=drvpts>Championship points</label></div>");
+    page += F("<div class=row><input type=checkbox name=drvBar id=drvbar value=1");
+    page += chk(cfgDrvBar);
+    page += F("><label for=drvbar>Points bar (scaled to leader)</label></div>");
+    appendDrvOrderSelectHtml(page);
+    page += F("<h3 style=font-size:.88rem;margin:14px 0 8px>Constructors — show</h3>");
+    page += F("<div class=row><input type=checkbox name=ctorLogo id=ctorlogo value=1");
+    page += chk(cfgCtorLogo);
+    page += F("><label for=ctorlogo>Team logo</label></div>");
+    page += F("<div class=row><input type=checkbox name=ctorName id=ctorname value=1");
+    page += chk(cfgCtorName);
+    page += F("><label for=ctorname>Team name</label></div>");
+    page += F("<div class=row><input type=checkbox name=ctorPts id=ctorpts value=1");
+    page += chk(cfgCtorPts);
+    page += F("><label for=ctorpts>Championship points</label></div>");
+    page += F("<div class=row><input type=checkbox name=ctorBar id=ctorbar value=1");
+    page += chk(cfgCtorBar);
+    page += F("><label for=ctorbar>Points bar (scaled to leader)</label></div>");
+    appendCtorOrderSelectHtml(page);
+    page += F("</div>");
+
+    page += F("<div class=tabp data-tab=4><h2>Wi‑Fi</h2>");
     page += F("<p class=hint>Changing network briefly disconnects Wi‑Fi; if the IP changes, use the address on the e‑paper header or Serial.</p>");
     page += F("<div class=row><input type=checkbox name=wifiApply id=wfap value=1><label for=wfap>Apply new network below</label></div>");
     page += F("<label>SSID (max 32)</label><input type=text name=wifiSsid maxlength=32 value=\"");
@@ -1768,14 +1970,15 @@ static void setupConfigWeb() {
     page += F("\">");
     page += F("<label>Password (max 63; leave blank to keep last saved password)</label><input type=password name=wifiPass maxlength=63 autocomplete=off>");
 
+    page += F("<input type=hidden name=wifiAlways value=0>");
     page += F("<div class=row><input type=checkbox name=wifiAlways id=w value=1");
     page += chk(cfgWifiAlways);
-    page += F("><label for=w>Keep Wi‑Fi on for this page (disable to save power; no web UI while off)</label></div>");
+    page += F("><label for=w>Keep Wi‑Fi on (recommended — admin page needs Wi‑Fi)</label></div>");
 
     page += F("<p class=hint style=margin-top:16px>Applies schedule, audio (incl. quiet hours), API, and Wi‑Fi. Use <strong>Save all settings</strong> for startup splash (SD &amp; system tab).</p>");
     page += F("<button type=submit>Save all settings</button></div></form>");
 
-    page += F("<div class=tabp data-tab=4><h2>Upload to SD card</h2>");
+    page += F("<div class=tabp data-tab=5><h2>Upload to SD card</h2>");
     page += F("<p class=hint>Files go under <code>/sound</code>, <code>/flags</code>, <code>/tracks</code>, <code>/logos</code>, or any path under <code>/</code> via <strong>card root</strong>. "
               "Optional subfolder (same rules as mkdir). Filename: letters, digits, <code>.</code> <code>-</code> <code>_</code>. "
               "Max 12&nbsp;MB per file. Multi-select: Ctrl/Cmd+click.</p>");
@@ -1862,10 +2065,23 @@ static void setupConfigWeb() {
     v = getU("ttlRes", cfgTtlResultsMs / 60000UL);
     prefs.putUInt("ttlRes", clampU32(v, 1, 1440));
 
-    prefs.putBool("wifiAlways", configServer.hasArg("wifiAlways"));
+    prefs.putBool("wifiAlways", configServer.arg("wifiAlways") == "1");
     prefs.putBool("bootSplash", configServer.hasArg("bootSplash"));
     persistSoundPrefsFromRequest();
     prefs.putBool("clock24h", configServer.hasArg("clock24h"));
+
+    prefs.putBool("drvCode", configServer.hasArg("drvCode"));
+    prefs.putBool("drvLogo", configServer.hasArg("drvLogo"));
+    prefs.putBool("drvName", configServer.hasArg("drvName"));
+    prefs.putBool("drvFlag", configServer.hasArg("drvFlag"));
+    prefs.putBool("drvPts", configServer.hasArg("drvPts"));
+    prefs.putBool("drvBar", configServer.hasArg("drvBar"));
+    prefs.putBool("ctorLogo", configServer.hasArg("ctorLogo"));
+    prefs.putBool("ctorName", configServer.hasArg("ctorName"));
+    prefs.putBool("ctorPts", configServer.hasArg("ctorPts"));
+    prefs.putBool("ctorBar", configServer.hasArg("ctorBar"));
+    savePermOrderFromRequest("drvOrd", cfgDrvOrder, SLOT_COUNT, "drvOrd");
+    savePermOrderFromRequest("ctorOrd", cfgCtorOrder, CSLOT_COUNT, "ctorOrd");
 
     v = getU("raceProgH", (uint32_t)(cfgRaceInProgSec / 3600));
     prefs.putUInt("raceProgH", clampU32(v, 1, 48));
@@ -1984,8 +2200,20 @@ static void setupConfigWeb() {
     ESP.restart();
   });
 
-  configServer.begin();
-  Serial.println(F("[HTTP] Config server on :80"));
+  configServer.on("/health", HTTP_GET, []() {
+    String body = F("ok\n");
+    if (WiFi.status() == WL_CONNECTED)
+      body += WiFi.localIP().toString();
+    else
+      body += F("wifi_down");
+    configServer.send(200, "text/plain", body);
+  });
+
+}
+
+void f1TrackerServiceWebDuringBlock() {
+  handleConfigServer();
+  yield();
 }
 
 static inline void handleConfigServer() {
@@ -2016,7 +2244,12 @@ static bool httpGetJsonRaw(const char* url, F* filter=nullptr) {
 }
 template<typename F>
 static bool httpGetJsonWithRetry(const char* url, int tries=3, int backoff=500, F* filter=nullptr) {
-  for(int i=0;i<tries;i++){if(httpGetJsonRaw(url,filter)) return true; delay(backoff); backoff*=2;} return false;
+  for(int i=0;i<tries;i++){
+    if(httpGetJsonRaw(url,filter)) return true;
+    for(int d=0; d<backoff; d+=50) { handleConfigServer(); delay(50); }
+    backoff*=2;
+  }
+  return false;
 }
 
 template<typename F> static bool fetchCalendarWithCache(F* filter=nullptr) {
@@ -2101,7 +2334,7 @@ static void gfxPrintTimeWithColonGfx(const char* t, uint8_t dotColor) {
   gfx.print(sep + 1);
 }
 
-// Pixel width for the same layout as gfxPrintTimeWithColonGfx(); FONT_SMALL must be active.
+// Pixel width for the same layout as gfxPrintTimeWithColonGfx(); active font must be set.
 static int gfxTimeWithColonGfxWidth(const char* t) {
   if (!t || !t[0]) return 0;
   const char* sep = strchr(t, ':');
@@ -2452,8 +2685,8 @@ static void DrawLeftPanel() {
       drawStrS(cx + cw/2, C1_RACE_Y, gpTrunc, CENTER, EPD_WHITE, EPD_BLACK);
     }
 
-    // Circuit — FONT_SMALL, locality first word only
-    gfx.setFont(FONT_SMALL);
+    // Circuit — FONT_MED, locality first word only
+    gfx.setFont(FONT_MED);
     {
       String circ = nextLoc.length() ? nextLoc : nextCircuit;
       int commaIdx = circ.indexOf(',');
@@ -2464,56 +2697,26 @@ static void DrawLeftPanel() {
       drawStrS(cx + cw/2, C1_CIRC_Y, circ, CENTER, EPD_WHITE, EPD_BLACK);
     }
 
-    // Countdown box
+    // Date/time box (no countdown)
     int bx = cx + 2, bw = cw - 4;
     epd_fill_rect(bx, C1_BOX_Y, bw, C1_BOX_H, EPD_BLACK);
 
-    String rtime = nextRaceLocalDateMMDD() + " " + nextRaceLocalTimeLower();
-    String cd = nextRaceCountdownDH();
-    if(!cd.length()) cd = "NOW";
-
+    String rtime = nextRaceLocalDateMMDD() + "  " + nextRaceLocalTimeLower();
     const int innerTop = C1_BOX_Y + 3;
     const int innerBot = C1_BOX_Y + C1_BOX_H;
     const int innerMidX = bx + bw / 2;
 
-    gfx.setFont(FONT_SMALL);
-    const int sAsc = gfx.getFontAscent();
-    const int sDsc = gfx.getFontDescent();
-    gfx.setFont(FONT_HERO);
-    const int hAsc = gfx.getFontAscent();
-    const int hDsc = gfx.getFontDescent();
-    const int gapSmallHero = 2;
-    const int gapHeroSmall = 2;
-    const int blockH =
-        sAsc + (-sDsc) + gapSmallHero + hAsc + (-hDsc) + gapHeroSmall + sAsc + (-sDsc);
-
-    const int padTop =
-        innerTop + max(0, ((innerBot - innerTop) - blockH) / 2);
-    const int blLightsOut = padTop + sAsc;
-    const int blCountdown =
-        blLightsOut + (-sDsc) + gapSmallHero + hAsc;
-    const int blRtime =
-        blCountdown + (-hDsc) + gapHeroSmall + sAsc;
-
-    gfx.setFont(FONT_SMALL);
-    gfx.setFontMode(1);
-    drawStr(innerMidX, blLightsOut, "LIGHTS OUT", CENTER, EPD_WHITE, EPD_BLACK);
-
-    gfx.setFont(FONT_HERO);
-    gfx.setFontMode(1);
-    gfx.setForegroundColor(EPD_RED);
-    gfx.setBackgroundColor(EPD_BLACK);
-    drawStr(innerMidX, blCountdown, cd.c_str(), CENTER, EPD_RED, EPD_BLACK);
-
-    gfx.setFont(FONT_SMALL);
+    gfx.setFont(FONT_LARGE);
     gfx.setFontMode(1);
     gfx.setForegroundColor(EPD_WHITE);
     gfx.setBackgroundColor(EPD_BLACK);
-    {
-      const int rw = gfxTimeWithColonGfxWidth(rtime.c_str());
-      gfx.setCursor(innerMidX - rw / 2, blRtime);
-      gfxPrintTimeWithColonGfx(rtime.c_str(), EPD_WHITE);
-    }
+    const int asc = gfx.getFontAscent();
+    const int dsc = gfx.getFontDescent();
+    const int textH = asc + (-dsc);
+    const int bl = innerTop + (innerBot - innerTop - textH) / 2 + asc;
+    const int rw = gfxTimeWithColonGfxWidth(rtime.c_str());
+    gfx.setCursor(innerMidX - rw / 2, bl);
+    gfxPrintTimeWithColonGfx(rtime.c_str(), EPD_WHITE);
     gfx.setFontMode(0);
   }
 
@@ -2526,7 +2729,7 @@ static void DrawLeftPanel() {
       String lgpTrunc = truncateToPixelWidth(lastGP, cw - 6);
       drawStrS(cx + cw/2, C1_LGPN_Y, lgpTrunc, CENTER, EPD_WHITE, EPD_BLACK);
     }
-    gfx.setFont(FONT_SMALL);
+    gfx.setFont(FONT_MED);
     {
       String lcirc = lastLoc.length() ? lastLoc : lastCircuit;
       int commaIdx = lcirc.indexOf(',');
@@ -2683,62 +2886,159 @@ static uint8_t driverBadgeTextColor(const char* familyName, uint8_t teamColor) {
   return EPD_WHITE;
 }
 
+static bool drvSlotOn(uint8_t slot) {
+  switch (slot) {
+    case SLOT_CODE: return cfgDrvCode;
+    case SLOT_LOGO: return cfgDrvLogo;
+    case SLOT_NAME: return cfgDrvName;
+    case SLOT_FLAG: return cfgDrvFlag;
+    case SLOT_BAR:  return cfgDrvBar;
+    case SLOT_PTS:  return cfgDrvPts;
+  }
+  return false;
+}
+
+static bool ctorSlotOn(uint8_t slot) {
+  switch (slot) {
+    case CSLOT_LOGO: return cfgCtorLogo;
+    case CSLOT_NAME: return cfgCtorName;
+    case CSLOT_BAR:  return cfgCtorBar;
+    case CSLOT_PTS:  return cfgCtorPts;
+  }
+  return false;
+}
+
+static void drawDriverCodeBadge(int x, int ry, const char* fam, const char* code, uint8_t tc) {
+  String badge;
+  if (code && code[0]) {
+    badge = String(code);
+    badge.toUpperCase();
+  } else if (fam && fam[0]) {
+    badge = utf8_substr(String(fam), 3);
+    badge.toUpperCase();
+  }
+  if (!badge.length()) return;
+  const int badgeY = ry + (COL_ROW_H - D_BADGE_H) / 2;
+  epd_fill_rect_color(x, badgeY, D_BADGE_W, D_BADGE_H, tc);
+  gfx.setFont(FONT_SMALL);
+  gfx.setFontMode(1);
+  gfx.setForegroundColor(driverBadgeTextColor(fam, tc));
+  int btw = gfx.getUTF8Width(badge.c_str());
+  gfx.setCursor(x + (D_BADGE_W - btw) / 2, badgeY + (D_BADGE_H + gfx.getFontAscent()) / 2);
+  gfx.print(badge);
+}
+
+static void computeDriverRightLayout(int& flagX, int& barLeft, int& rightBound) {
+  flagX = -1;
+  barLeft = -1;
+  rightBound = D_PTS_X;
+
+  uint8_t rightSlots[SLOT_COUNT];
+  int nRight = 0;
+  for (uint8_t oi = 0; oi < SLOT_COUNT; oi++) {
+    uint8_t st = cfgDrvOrder[oi];
+    if (st == SLOT_FLAG || st == SLOT_BAR || st == SLOT_PTS) {
+      if (drvSlotOn(st)) rightSlots[nRight++] = st;
+    }
+  }
+
+  int rx = D_PTS_X;
+  bool hasPts = false;
+  for (int i = 0; i < nRight; i++)
+    if (rightSlots[i] == SLOT_PTS) hasPts = true;
+  if (hasPts) rx -= D_PTS_RESERVE + D_ROW_SLOT_GAP;
+
+  for (int ri = nRight - 1; ri >= 0; ri--) {
+    uint8_t st = rightSlots[ri];
+    if (st == SLOT_PTS) continue;
+    if (st == SLOT_BAR) {
+      rx -= D_BAR_W;
+      barLeft = rx;
+      rx -= D_ROW_SLOT_GAP;
+    } else if (st == SLOT_FLAG) {
+      rx -= D_FLAG_W + D_FLAG_SHIFT_L;
+      flagX = rx;
+      rx -= D_ROW_SLOT_GAP;
+    }
+  }
+  rightBound = rx;
+}
+
 static void drawDriverRow(int i, const char* pos, const char* fam,
                           const char* code, const char* pts,
-                          uint8_t tc, const char* nationality="") {
+                          uint8_t tc, const char* nationality,
+                          const char* ctorId, float maxPts) {
   int ry = SECTION_ROW0_Y + i * COL_ROW_H;
 
-  // Row background
   epd_fill_rect(COL2_X, ry, COL2_W, COL_ROW_H, EPD_BLACK);
+  gfx.setFontMode(1);
 
-  gfx.setFontMode(1);  // transparent — all row text
-
-  // Position number
   gfx.setFont(FONT_MED);
   gfx.setFontMode(1);
   gfx.setForegroundColor(EPD_WHITE);
-  char posbuf[4]; snprintf(posbuf, sizeof(posbuf), "%s", pos);
+  char posbuf[4];
+  snprintf(posbuf, sizeof(posbuf), "%s", pos);
   int tw = gfx.getUTF8Width(posbuf);
   gfx.setCursor(D_POS_X + D_POS_W - tw, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN);
   gfx.print(posbuf);
 
-  const int badgeY = ry + (COL_ROW_H - D_BADGE_H) / 2;
-  epd_fill_rect_color(D_BADGE_X, badgeY, D_BADGE_W, D_BADGE_H, tc);
-  gfx.setFont(FONT_SMALL);
-  gfx.setFontMode(1);
-  gfx.setForegroundColor(driverBadgeTextColor(fam, tc));
-  String badge = code[0] ? String(code) : utf8_substr(String(fam), 3);
-  badge.toUpperCase();
-  tw = gfx.getUTF8Width(badge.c_str());
-  gfx.setCursor(D_BADGE_X + (D_BADGE_W - tw) / 2,
-                badgeY + (D_BADGE_H + gfx.getFontAscent()) / 2);
-  gfx.print(badge);
+  int barLeft = -1, flagX = -1, rightBound = 0;
+  computeDriverRightLayout(flagX, barLeft, rightBound);
 
-  // Driver surname
-  gfx.setFont(FONT_LARGE);
-  gfx.setFontMode(1);
-  gfx.setForegroundColor(EPD_WHITE);
-  int nameX    = D_BADGE_X + D_BADGE_W + 5;
-  int maxNameW = D_PTS_X - nameX - 32 - 6;  // reserve 32px flag + 6px gap
-  String lastName = truncateToPixelWidth(String(fam), maxNameW);
-  gfx.setCursor(nameX, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN);
-  gfx.print(lastName);
-  int nameEndX = nameX + gfx.getUTF8Width(lastName.c_str()) + 6;
-  int flagX    = nameEndX;
-
-  // Flag — 24×16px between name and points
-  int flagY = ry + (COL_ROW_H - 16) / 2;
-  const char* iso = natToISO(nationality);
-  if(iso && sdMounted) {
-    char flagPath[32];
-    snprintf(flagPath, sizeof(flagPath), "/flags/%s.raw", iso);
-    drawLogo(flagPath, flagX, flagY, epd_buf);
-  } else {
-    epd_fill_rect_color(flagX, flagY + 2, 24, 12, tc);
+  if (drvSlotOn(SLOT_BAR) && barLeft >= 0 && maxPts > 0.0f && pts && pts[0]) {
+    float ptsF = atof(pts);
+    int barW = (int)(D_BAR_W * ptsF / maxPts);
+    if (barW < 4 && ptsF > 0) barW = 4;
+    if (barW > D_BAR_W) barW = D_BAR_W;
+    const int barY = ry + (COL_ROW_H - 6) / 2;
+    epd_fill_rect(barLeft, barY, D_BAR_W, 6, EPD_BLACK);
+    if (barW > 0) epd_fill_rect_color(barLeft + D_BAR_W - barW, barY, barW, 6, tc);
   }
 
-  // Points — right-aligned
-  if(pts && pts[0]) {
+  // Left-side slots (code, logo, name) — user order, left-to-right
+  int x = D_POS_X + D_POS_W + D_ROW_SLOT_GAP;
+  int nameX = -1;
+  for (uint8_t oi = 0; oi < SLOT_COUNT; oi++) {
+    uint8_t st = cfgDrvOrder[oi];
+    if (!drvSlotOn(st)) continue;
+    if (st == SLOT_FLAG || st == SLOT_BAR || st == SLOT_PTS) continue;
+    if (st == SLOT_CODE) {
+      drawDriverCodeBadge(x, ry, fam, code, tc);
+      x += D_BADGE_W + D_ROW_SLOT_GAP;
+    } else if (st == SLOT_LOGO) {
+      const int logoY = ry + (COL_ROW_H - D_DRV_LOGO_H) / 2;
+      epd_fill_rect_color(x, logoY, D_DRV_LOGO_W, D_DRV_LOGO_H, tc);
+      if (ctorId && ctorId[0]) drawConstructorLogo(ctorId, x, logoY);
+      x += D_DRV_LOGO_W + D_ROW_SLOT_GAP;
+    } else if (st == SLOT_NAME) {
+      nameX = x;
+    }
+  }
+
+  if (nameX >= 0 && fam && fam[0]) {
+    int maxNameW = rightBound - nameX - D_ROW_SLOT_GAP;
+    if (maxNameW < 0) maxNameW = 0;
+    gfx.setFont(FONT_LARGE);
+    gfx.setFontMode(1);
+    gfx.setForegroundColor(EPD_WHITE);
+    String lastName = truncateToPixelWidth(String(fam), (uint16_t)maxNameW);
+    gfx.setCursor(nameX, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN);
+    gfx.print(lastName);
+  }
+
+  if (flagX >= 0) {
+    const int flagY = ry + (COL_ROW_H - D_FLAG_H) / 2;
+    const char* iso = natToISO(nationality);
+    if (iso && sdMounted) {
+      char flagPath[32];
+      snprintf(flagPath, sizeof(flagPath), "/flags/%s.raw", iso);
+      drawLogo(flagPath, flagX, flagY, epd_buf);
+    } else {
+      epd_fill_rect_color(flagX, flagY + 2, D_FLAG_W, 12, tc);
+    }
+  }
+
+  if (drvSlotOn(SLOT_PTS) && pts && pts[0]) {
     gfx.setFont(FONT_MED);
     gfx.setFontMode(1);
     gfx.setForegroundColor(EPD_WHITE);
@@ -2747,10 +3047,98 @@ static void drawDriverRow(int i, const char* pos, const char* fam,
     gfx.print(pts);
   }
 
-  gfx.setFontMode(0);  // restore
-
-  // White separator line
+  (void)barLeft;
+  gfx.setFontMode(0);
   epd_fill_rect(COL2_X, ry + COL_ROW_H - 1, COL2_W, 1, EPD_WHITE);
+}
+
+static void computeCtorRightLayout(int& barLeft, int& rightBound) {
+  barLeft = -1;
+  rightBound = C_PTS_X;
+
+  uint8_t rightSlots[CSLOT_COUNT];
+  int nRight = 0;
+  for (uint8_t oi = 0; oi < CSLOT_COUNT; oi++) {
+    uint8_t st = cfgCtorOrder[oi];
+    if (st == CSLOT_BAR || st == CSLOT_PTS) {
+      if (ctorSlotOn(st)) rightSlots[nRight++] = st;
+    }
+  }
+
+  int rx = C_PTS_X;
+  bool hasPts = false;
+  for (int i = 0; i < nRight; i++)
+    if (rightSlots[i] == CSLOT_PTS) hasPts = true;
+  if (hasPts) rx -= C_PTS_RESERVE + C_BAR_PTS_GAP;
+
+  for (int ri = nRight - 1; ri >= 0; ri--) {
+    if (rightSlots[ri] == CSLOT_PTS) continue;
+    if (rightSlots[ri] == CSLOT_BAR) {
+      rx -= C_BAR_W;
+      barLeft = rx;
+      rx -= C_ROW_SLOT_GAP;
+    }
+  }
+  rightBound = rx;
+}
+
+static void drawConstructorRow(int i, const char* pos, const char* nm,
+                               const char* ctorId, const char* pts,
+                               uint8_t tc, float maxPts) {
+  float ptsF = atof(pts);
+  int ry = SECTION_ROW0_Y + i * COL_ROW_H;
+
+  epd_fill_rect(COL3_X, ry, COL3_W, COL_ROW_H, EPD_BLACK);
+  gfx.setFontMode(1);
+
+  gfx.setFont(FONT_MED);
+  gfx.setFontMode(1);
+  drawStr(C_POS_X + C_POS_W, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN, pos, RIGHT, EPD_WHITE, EPD_BLACK);
+
+  int barLeft = -1, rightBound = 0;
+  computeCtorRightLayout(barLeft, rightBound);
+
+  if (ctorSlotOn(CSLOT_BAR) && barLeft >= 0 && maxPts > 0.0f) {
+    int barW = (int)(C_BAR_W * ptsF / maxPts);
+    if (barW < 4 && ptsF > 0) barW = 4;
+    if (barW > C_BAR_W) barW = C_BAR_W;
+    const int barY = ry + (COL_ROW_H - 6) / 2;
+    epd_fill_rect(barLeft, barY, C_BAR_W, 6, EPD_BLACK);
+    if (barW > 0) epd_fill_rect_color(barLeft + C_BAR_W - barW, barY, barW, 6, tc);
+  }
+
+  int x = C_POS_X + C_POS_W + D_ROW_SLOT_GAP;
+  int nameX = -1;
+  for (uint8_t oi = 0; oi < CSLOT_COUNT; oi++) {
+    uint8_t st = cfgCtorOrder[oi];
+    if (!ctorSlotOn(st)) continue;
+    if (st == CSLOT_BAR || st == CSLOT_PTS) continue;
+    if (st == CSLOT_LOGO) {
+      const int logoY = ry + (COL_ROW_H - CTOR_LOGO_H) / 2;
+      epd_fill_rect_color(x, logoY, CTOR_LOGO_W, CTOR_LOGO_H, tc);
+      drawConstructorLogo(ctorId, x, logoY);
+      x += CTOR_LOGO_W + D_ROW_SLOT_GAP;
+    } else if (st == CSLOT_NAME) {
+      nameX = x;
+    }
+  }
+
+  if (nameX >= 0 && nm && nm[0]) {
+    int maxNameW = rightBound - nameX - D_ROW_SLOT_GAP;
+    if (maxNameW < 0) maxNameW = 0;
+    gfx.setFont(FONT_LARGE);
+    gfx.setFontMode(1);
+    String displayName = constructorDisplayName(ctorId, nm);
+    String fitName = truncateToPixelWidth(displayName, (uint16_t)maxNameW);
+    drawStrS(nameX, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN, fitName, LEFT, EPD_WHITE, EPD_BLACK);
+  }
+
+  if (ctorSlotOn(CSLOT_PTS) && pts && pts[0])
+    drawStr(C_PTS_X, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN, pts, RIGHT, EPD_WHITE, EPD_BLACK);
+
+  (void)barLeft;
+  gfx.setFontMode(0);
+  epd_fill_rect(COL3_X, ry + COL_ROW_H - 1, COL3_W, 1, EPD_WHITE);
 }
 
 // ── DRIVER STANDINGS ──
@@ -2771,6 +3159,11 @@ void DrawDriversStandings() {
 
   JsonArray ds = doc["MRData"]["StandingsTable"]["StandingsLists"][0]["DriverStandings"].as<JsonArray>();
   int count = min(STANDINGS_DATA_ROWS, (int)ds.size());
+  float maxPts = 1.0f;
+  for (int i = 0; i < count; i++) {
+    float p = atof(ds[i]["points"] | "0");
+    if (p > maxPts) maxPts = p;
+  }
   for(int i=0; i<count; i++){
     JsonObject d = ds[i];
     drawDriverRow(i,
@@ -2779,7 +3172,9 @@ void DrawDriversStandings() {
       d["Driver"]["code"]|"",
       d["points"]|"",
       teamColor(d["Constructors"][0]["constructorId"]|"", d["Constructors"][0]["name"]|""),
-      d["Driver"]["nationality"]|"");
+      d["Driver"]["nationality"]|"",
+      d["Constructors"][0]["constructorId"]|"",
+      maxPts);
   }
 }
 
@@ -2807,9 +3202,11 @@ void DrawStartingGrid(unsigned round) {
       row["position"]|"",
       row["Driver"]["familyName"]|"",
       row["Driver"]["code"]|"",
-      "",  // no points for qualifying
+      "",
       teamColor(row["Constructor"]["constructorId"]|"", row["Constructor"]["name"]|""),
-      row["Driver"]["nationality"]|"");
+      row["Driver"]["nationality"]|"",
+      row["Constructor"]["constructorId"]|"",
+      1.0f);
   }
 }
 
@@ -2864,53 +3261,13 @@ void DrawConstructors() {
 
   for(int i=0; i<count; i++){
     JsonObject c = cs[i];
-    const char* pos    = c["position"]|"";
-    const char* nm     = c["Constructor"]["name"]|"";
-    const char* ctorId = c["Constructor"]["constructorId"]|"";
-    const char* pts    = c["points"]|"";
-    uint8_t tc = teamColor(ctorId, nm);
-    float ptsF = atof(pts);
-    int ry = SECTION_ROW0_Y + i * COL_ROW_H;
-
-    // 1. Row background
-    epd_fill_rect(COL3_X, ry, COL3_W, COL_ROW_H, EPD_BLACK);
-
-    gfx.setFontMode(1);  // transparent — all row text
-
-    gfx.setFont(FONT_MED);
-    gfx.setFontMode(1);
-
-// 3. Position number — white
-uint8_t posFg = EPD_WHITE;
-    drawStr(C_POS_X + C_POS_W, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN, pos, RIGHT, posFg, EPD_BLACK);
-
-    int logoY = ry + (COL_ROW_H - CTOR_LOGO_H) / 2;
-    epd_fill_rect_color(C_LOGO_X, logoY, CTOR_LOGO_W, CTOR_LOGO_H, tc);
-    drawConstructorLogo(ctorId, C_LOGO_X, logoY);
-
-    // 4. Team name — FONT_LARGE, clipped to C_NAME_MAX_W
-    gfx.setFont(FONT_LARGE);
-    gfx.setFontMode(1);
-    String displayName = truncateToPixelWidth(constructorDisplayName(ctorId, nm), C_NAME_MAX_W);
-    drawStrS(C_NAME_X, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN, displayName, LEFT, EPD_WHITE, EPD_BLACK);
-
-    // 5. Points bar — black track then colored fill
-    int barW = (int)(C_BAR_W * ptsF / maxPts);
-    if(barW < 4 && ptsF > 0) barW = 4;
-    if(barW > C_BAR_W) barW = C_BAR_W;
-    int barY = ry + (COL_ROW_H - 6) / 2;
-    epd_fill_rect(C_BAR_START, barY, C_BAR_W, 6, EPD_BLACK);
-    if(barW > 0) epd_fill_rect_color(C_BAR_START, barY, barW, 6, tc);
-
-    // 6. Points number — same size as driver standings (FONT_MED)
-    gfx.setFont(FONT_MED);
-    gfx.setFontMode(1);
-    drawStr(C_PTS_X, ry + COL_ROW_H - ROW_TEXT_BASELINE_DN, pts, RIGHT, EPD_WHITE, EPD_BLACK);
-
-    gfx.setFontMode(0);  // restore
-
-    // 7. White separator line
-    epd_fill_rect(COL3_X, ry + COL_ROW_H - 1, COL3_W, 1, EPD_WHITE);
+    drawConstructorRow(i,
+      c["position"]|"",
+      c["Constructor"]["name"]|"",
+      c["Constructor"]["constructorId"]|"",
+      c["points"]|"",
+      teamColor(c["Constructor"]["constructorId"]|"", c["Constructor"]["name"]|""),
+      maxPts);
   }
 }
 
@@ -3134,8 +3491,16 @@ void setup() {
     drawStr(EPD_WIDTH/2,150,"WiFi Failed - Restarting",CENTER,EPD_RED);
     epd_refresh(); delay(3000); ESP.restart();
   }
+  wm.stopConfigPortal();
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  delay(200);
   wifiConnected=true;
   setupConfigWeb();
+  WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t) {
+    if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) onWiFiStaUp();
+  });
+  onWiFiStaUp();
   if (WiFi.status() == WL_CONNECTED)
     prefs.putString("wifiSsid", WiFi.SSID());
   Serial.printf("[WiFi] %s  |  Config: http://%s/\n",
@@ -3180,6 +3545,11 @@ void setup() {
   // Don’t trigger results celebration until well after startup boot WAV (same file slot).
   s_celebrateResultsNotBeforeMs = millis() + 22000UL;
   disconnectWiFiIfIdle();
+  if (WiFi.status() == WL_CONNECTED)
+    Serial.printf("[HTTP] Admin ready: http://%s/  (health: /health)\n",
+                  WiFi.localIP().toString().c_str());
+  else
+    Serial.println(F("[HTTP] Admin unavailable — Wi-Fi not connected"));
   Serial.println(F("[Setup] Done"));
 }
 
@@ -3188,8 +3558,14 @@ void setup() {
 // ═══════════════════════════════════════════════════════════════════
 void loop() {
   uint32_t periodStart = millis();
+  static uint32_t lastWifiReconnectTry = 0;
   while (millis() - periodStart < 60000) {
     handleConfigServer();
+    // Reconnect after drops so the admin page stays reachable.
+    if (WiFi.status() != WL_CONNECTED && millis() - lastWifiReconnectTry > 5000UL) {
+      lastWifiReconnectTry = millis();
+      ensureWiFiConnected();
+    }
     if (!getLocalTime(&timeinfo)) {
       if (!ensureWiFiConnected()) {
         delay(2000);

@@ -1,6 +1,6 @@
 # F1 Tracker (Large / PhotoPainter)
 
-**Current release: [v1.0](CHANGELOG.md#v10)**
+**Current release: [v1.1](CHANGELOG.md#v11)**
 
 <p align="center">
   <img src="images/readme-photo.jpg" alt="F1 Tracker on Waveshare PhotoPainter 7.3 inch e-paper" width="720">
@@ -16,7 +16,7 @@ Custom firmware for the **[Waveshare ESP32-S3 PhotoPainter](https://www.waveshar
 | **Admin page reference** | [ADMIN_PAGE.md](ADMIN_PAGE.md) — every setting at `http://<device-ip>/` |
 | **QA checklist** | [TESTING_GUIDE.md](TESTING_GUIDE.md) |
 
-![Version](https://img.shields.io/badge/version-1.0-red) ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange) ![Framework](https://img.shields.io/badge/Framework-Arduino-00979D) ![Build](https://img.shields.io/badge/Build-PlatformIO-ffc515) ![Display](https://img.shields.io/badge/Display-7.3%22%206--color-e--paper-blue)
+![Version](https://img.shields.io/badge/version-1.1-red) ![Platform](https://img.shields.io/badge/Platform-ESP32--S3-orange) ![Framework](https://img.shields.io/badge/Framework-Arduino-00979D) ![Build](https://img.shields.io/badge/Build-PlatformIO-ffc515) ![Display](https://img.shields.io/badge/Display-7.3%22%206--color-e--paper-blue)
 
 ---
 
@@ -24,9 +24,10 @@ Custom firmware for the **[Waveshare ESP32-S3 PhotoPainter](https://www.waveshar
 
 ### E-paper UI (800×480)
 
-- **Three-column layout** — next race + countdown, last race + optional **circuit map**, podium; driver or **starting grid**; constructor standings with team-colored bars.
+- **Three-column layout** — next race + **date/time**, last race + optional **circuit map**, podium; driver or **starting grid**; constructor standings with team-colored bars.
+- **Configurable standings rows** (admin **Display** tab) — show/hide and reorder code badge, team logo, name, flag, points bar, and points for drivers and constructors.
 - **Formula 1–style embedded fonts** — custom bitmap type (U8g2 bridge on Adafruit GFX).
-- **Race states** — countdown to lights-out, **RACE IN PROGRESS** banner, grid when qualifying exists near race time, podium TLAs when results are posted.
+- **Race states** — next-race date/time, **RACE IN PROGRESS** banner, grid when qualifying exists near race time, podium TLAs when results are posted.
 - **Header / footer** — local date & time (12h or 24h), Wi‑Fi IP, **next scheduled refresh**, **battery %** with white gauge (via AXP2101 PMIC).
 - **Optional boot splash** — F1 logo + quote on power-up (toggle in web UI).
 
@@ -46,8 +47,11 @@ Browser UI on port **80** with tabs for:
 | **Schedule** | Race-window minutes, grid-search minutes, mid/far hourly spacing, race-window hours, grid-display hours, phase boundaries |
 | **Audio & time** | Volume, boot / loaded / update WAV picks from SD, **quiet hours**, 24h clock |
 | **API cache** | Cache minutes for calendar, standings, qualifying, qual/results availability probes |
-| **Wi‑Fi** | SSID/password, **keep Wi‑Fi on** (off = radio sleeps between refreshes; admin page unreachable until next reconnect) |
+| **Display** | Driver/constructor row **visibility** (code badge, logo, name, flag, bar, points) and **column order** (left→right after `#`) |
+| **Wi‑Fi** | SSID/password, **keep Wi‑Fi on** (recommended — admin page needs Wi‑Fi) |
 | **SD & system** | Upload/browse/delete on SD, mkdir, boot splash, **redraw (cached data)**, **force refresh**, **reboot** |
+
+Health check: **`http://<device-ip>/health`** returns `ok` and the device IP.
 
 See **[USER_GUIDE.md](USER_GUIDE.md)** for display behavior and **[ADMIN_PAGE.md](ADMIN_PAGE.md)** for every admin control.
 
@@ -68,7 +72,7 @@ Sample assets are in the repo [`sound/`](sound/) folder (copy to the card; match
 |--------|---------|
 | `/sound/*.wav` | Boot, loaded, update, celebration clips |
 | `/flags/XX.raw` | Driver nationality flags (ISO code, e.g. `gb.raw`) |
-| `/tracks/<circuit>.raw` | Circuit silhouettes (Montreal / Villeneuve auto-rotated & scaled in firmware) |
+| `/tracks/<circuit>.raw` | Circuit silhouettes (tall maps auto-rotated and centered in the left panel) |
 | `/logos/<team>.raw` | Constructor badge artwork |
 
 Conversion helpers live under [`misc/`](misc/) and [`images/`](images/).
@@ -78,6 +82,7 @@ Conversion helpers live under [`misc/`](misc/) and [`images/`](images/).
 - **AXP2101 PMIC** ([XPowersLib](https://github.com/lewisxhe/XPowersLib)) — rail bring-up, battery %, charging indicator in UI; **I²C retry** on boot if the first probe fails.
 - **Boot reset reason** logged on serial (`[RST] …`) for debugging unexpected USB reconnects.
 - **Wi‑Fi provisioning** — [WiFiManager](https://github.com/tzapu/WiFiManager) captive portal: `F1Tracker-Setup` / `formula1`.
+- **Web UI** — stays reachable on port 80 while Wi‑Fi is connected; HTTP served during e-paper refresh and audio playback.
 
 ---
 
@@ -197,7 +202,7 @@ Add your device photo as **`images/readme-photo.jpg`** (Google Photos links cann
 | **USB connect/disconnect sounds** | Usually MCU **reset loop** — check serial **`[RST] Reset reason=…`** ([USER_GUIDE.md](USER_GUIDE.md) — USB section). Try powered USB, disable USB selective suspend. |
 | **Upload fails** | COM port, cable, [Waveshare flashing notes](https://www.waveshare.com/wiki/ESP32-S3-PhotoPainter#Firmware_Flashing_Instructions) |
 | **Blank / corrupt EPD** | Stable 5 V supply during refresh (~12 s full refresh per Waveshare spec) |
-| **No admin page** | **Keep Wi‑Fi on** disabled → radio off between updates; wait for next refresh or enable always-on |
+| **No admin page** | Same Wi‑Fi as device; use **`http://`** not `https://`; try **`/health`**. IP on serial and footer. If unreachable across VLANs, check router firewall (see [USER_GUIDE.md](USER_GUIDE.md)). |
 | **No sound** | SD mounted; 16-bit WAV; volume / quiet hours; `/sound/` paths in web UI |
 | **Stale data** | Force refresh in web UI; cache TTLs; [jolpi.ca](https://api.jolpi.ca/) reachability |
 
